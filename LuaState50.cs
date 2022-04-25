@@ -74,14 +74,19 @@ namespace LuaSharp
         }
         ~LuaState50()
         {
+            if (!closed)
+                SetHook(null, LuaHookMask.None, 0);
             if (AutoClose)
                 Lua_close(State);
         }
 
+        private bool closed = false;
         public override void Close()
         {
             Lua_close(State);
             AutoClose = false;
+            HookFunc = null;
+            closed = true;
         }
 
 
@@ -913,6 +918,15 @@ namespace LuaSharp
             return "";
         }
         private LuaHookFunc HookFunc = null;
+        /// <summary>
+        /// sets/unsets a lua hook. call with func = null or mask = LuaHookMask.None to remove.
+        /// Note: gets autoatically removed when the LuaState object gets GC'd.
+        /// catches all exceptions thrown, to not let then propagate through lua (which would break stuff).
+        /// </summary>
+        /// <param name="func"></param>
+        /// <param name="mask"></param>
+        /// <param name="count"></param>
+        /// <exception cref="LuaException"></exception>
         public override void SetHook(Action<LuaState, DebugInfo> func, LuaHookMask mask, int count)
         {
             if (func == null || mask == LuaHookMask.None)
@@ -922,25 +936,33 @@ namespace LuaSharp
             }
             HookFunc = (IntPtr s, IntPtr debugrectord) =>
             {
-                LuaState st = new LuaState50(s);
-                int info = Lua_getinfo(s, "ulSn", debugrectord);
-                LuaDebugRecord r = Marshal.PtrToStructure<LuaDebugRecord>(debugrectord);
-                DebugInfo i = new DebugInfo
+                try
                 {
-                    Event = r.debugEvent,
-                };
-                if (info != 0)
-                {
-                    i.Name = Marshal.PtrToStringAnsi(r.name) ?? "";
-                    i.NameWhat = Marshal.PtrToStringAnsi(r.namewhat) ?? "";
-                    i.What = Marshal.PtrToStringAnsi(r.what) ?? "";
-                    i.Source = Marshal.PtrToStringAnsi(r.source) ?? "";
-                    i.CurrentLine = r.currentline;
-                    i.NumUpvalues = r.nups;
-                    i.LineDefined = r.linedefined;
-                    i.ShortSource = r.short_src;
+                    LuaState st = new LuaState50(s);
+                    int info = Lua_getinfo(s, "ulSn", debugrectord);
+                    LuaDebugRecord r = Marshal.PtrToStructure<LuaDebugRecord>(debugrectord);
+                    DebugInfo i = new DebugInfo()
+                    {
+                        Event = r.debugEvent,
+                    };
+                    if (info != 0)
+                    {
+                        i.Name = Marshal.PtrToStringAnsi(r.name) ?? "";
+                        i.NameWhat = Marshal.PtrToStringAnsi(r.namewhat) ?? "";
+                        i.What = Marshal.PtrToStringAnsi(r.what) ?? "";
+                        i.Source = Marshal.PtrToStringAnsi(r.source) ?? "";
+                        i.CurrentLine = r.currentline;
+                        i.NumUpvalues = r.nups;
+                        i.LineDefined = r.linedefined;
+                        i.ShortSource = r.short_src;
+                    }
+                    func(st, i);
                 }
-                func(st, i);
+                catch (Exception e)
+                {
+                    Console.WriteLine("exception catched in lua hook:");
+                    Console.WriteLine(e.ToString());
+                }
             };
             if (Lua_sethook(State, Marshal.GetFunctionPointerForDelegate(HookFunc), mask, count) != 1)
                 throw new LuaException("will never happen, always returns 1");

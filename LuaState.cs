@@ -228,6 +228,15 @@ namespace LuaSharp
         public abstract void GetUpvalue(int funcidx, int upvalue);
         public abstract void SetUpvalue(int funcidx, int upvalue);
         public abstract string Where(int lvl);
+        /// <summary>
+        /// sets/unsets a lua hook. call with func = null or mask = LuaHookMask.None to remove.
+        /// Note: gets autoatically removed when the LuaState object gets GC'd.
+        /// catches all exceptions thrown, to not let then propagate through lua (which would break stuff).
+        /// </summary>
+        /// <param name="func"></param>
+        /// <param name="mask"></param>
+        /// <param name="count"></param>
+        /// <exception cref="LuaException"></exception>
         public abstract void SetHook(Action<LuaState, DebugInfo> func, LuaHookMask mask, int count);
 
         // checks
