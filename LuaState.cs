@@ -117,6 +117,13 @@ namespace LuaSharp
         public int NumUpvalues;
         public int LineDefined;
         public string ShortSource = "";
+        public IntPtr ActivationRecord = IntPtr.Zero;
+        public bool FreeAROnFinalize = false;
+        ~DebugInfo()
+        {
+            if (FreeAROnFinalize && ActivationRecord != IntPtr.Zero)
+                Marshal.FreeHGlobal(ActivationRecord);
+        }
     }
 
     public abstract class LuaState : IDisposable
@@ -176,6 +183,7 @@ namespace LuaSharp
         public abstract string ToString(int ind);
         public abstract IntPtr ToUserdata(int ind);
         public abstract IntPtr ToPointer(int idx);
+        public abstract IntPtr ToCFunction(int idx);
 
         // push to stack
         public abstract void Push(bool b);
@@ -219,11 +227,12 @@ namespace LuaSharp
         public abstract string ToDebugString(int i);
         public abstract DebugInfo GetStackInfo(int lvl, bool push = false);
         public abstract DebugInfo GetFuncInfo();
+        public abstract void PushDebugInfoFunc(DebugInfo i);
         public abstract int GetCurrentFuncStackSize();
         public abstract string GetStackTrace(int from = 0, int to = -1, string lineprefix = "");
-        public abstract string GetLocalName(int lvl, int localnum);
-        public abstract void GetLocal(int lvl, int localnum);
-        public abstract void SetLocal(int lvl, int localnum);
+        public abstract string GetLocalName(DebugInfo i, int localnum);
+        public abstract void GetLocal(DebugInfo i, int localnum);
+        public abstract void SetLocal(DebugInfo i, int localnum);
         public abstract string GetUpvalueName(int funcidx, int upvalue);
         public abstract void GetUpvalue(int funcidx, int upvalue);
         public abstract void SetUpvalue(int funcidx, int upvalue);

@@ -74,7 +74,7 @@ namespace LuaSharp
         }
         ~LuaState50()
         {
-            if (!closed)
+            if (!closed && HookFunc != null)
                 SetHook(null, LuaHookMask.None, 0);
             if (AutoClose)
                 Lua_close(State);
@@ -336,6 +336,12 @@ namespace LuaSharp
         {
             CheckIndex(idx);
             return Lua_topointer(State, idx);
+        }
+        public override IntPtr ToCFunction(int idx)
+        {
+            if (!IsCFunction(idx))
+                TypeError(idx, "CFunction");
+            return Lua_tocfunction(State, idx);
         }
         // cfunc, thread, pointer
 
@@ -679,9 +685,10 @@ namespace LuaSharp
             int sd = GetCurrentFuncStackSize();
             Push(sd);
             Lua_pushcclosure(State, Marshal.GetFunctionPointerForDelegate(PCallStackAttacher), 1);
-            Insert(1);
-            LuaResult r = Lua_pcall(State, nargs, nres, 1);
-            Lua_remove(State, 1);
+            int ecpos = ToAbsoluteIndex(-nargs - 2); // just under the func to be called
+            Insert(ecpos);
+            LuaResult r = Lua_pcall(State, nargs, nres, ecpos);
+            Remove(ecpos);
             CheckError(r);
         }
         public override LuaResult PCall_Debug(int nargs, int nres, int errfunc)
@@ -733,6 +740,23 @@ namespace LuaSharp
                     return "unknown";
             }
         }
+        private DebugInfo ToDebugInfo(LuaDebugRecord r, IntPtr ar, bool free = true)
+        {
+            return new DebugInfo
+            {
+                Event = r.debugEvent,
+                Name = Marshal.PtrToStringAnsi(r.name),
+                NameWhat = Marshal.PtrToStringAnsi(r.namewhat) ?? "",
+                What = Marshal.PtrToStringAnsi(r.what) ?? "",
+                Source = Marshal.PtrToStringAnsi(r.source) ?? "",
+                CurrentLine = r.currentline,
+                NumUpvalues = r.nups,
+                LineDefined = r.linedefined,
+                ShortSource = r.short_src,
+                ActivationRecord = ar,
+                FreeAROnFinalize = free,
+            };
+        }
         public override DebugInfo GetStackInfo(int lvl, bool push = false)
         {
             IntPtr ar = Marshal.AllocHGlobal(Marshal.SizeOf<LuaDebugRecord>());
@@ -747,20 +771,7 @@ namespace LuaSharp
                 throw new LuaException("somehow the option string got messed up");
             }
             LuaDebugRecord r = Marshal.PtrToStructure<LuaDebugRecord>(ar);
-            DebugInfo i = new DebugInfo
-            {
-                Event = 0,
-                Name = Marshal.PtrToStringAnsi(r.name),
-                NameWhat = Marshal.PtrToStringAnsi(r.namewhat) ?? "",
-                What = Marshal.PtrToStringAnsi(r.what) ?? "",
-                Source = Marshal.PtrToStringAnsi(r.source) ?? "",
-                CurrentLine = r.currentline,
-                NumUpvalues = r.nups,
-                LineDefined = r.linedefined,
-                ShortSource = r.short_src,
-            };
-            Marshal.FreeHGlobal(ar);
-            return i;
+            return ToDebugInfo(r, ar);
         }
         public override DebugInfo GetFuncInfo()
         {
@@ -772,20 +783,19 @@ namespace LuaSharp
                 throw new LuaException("somehow the option string got messed up");
             }
             LuaDebugRecord r = Marshal.PtrToStructure<LuaDebugRecord>(ar);
-            DebugInfo i = new DebugInfo
-            {
-                Event = 0,
-                Name = Marshal.PtrToStringAnsi(r.name),
-                NameWhat = Marshal.PtrToStringAnsi(r.namewhat) ?? "",
-                What = Marshal.PtrToStringAnsi(r.what) ?? "",
-                Source = Marshal.PtrToStringAnsi(r.source) ?? "",
-                CurrentLine = r.currentline,
-                NumUpvalues = r.nups,
-                LineDefined = r.linedefined,
-                ShortSource = r.short_src,
-            };
             Marshal.FreeHGlobal(ar);
-            return i;
+            return ToDebugInfo(r, IntPtr.Zero); // no ar here, cause we cannot change locals of this anyway
+        }
+        public override void PushDebugInfoFunc(DebugInfo i)
+        {
+            if (i.ActivationRecord == IntPtr.Zero)
+                throw new LuaException("i has no ActivationRecord");
+            if (Lua_getinfo(State, "f", i.ActivationRecord) == 0)
+            {
+                Marshal.FreeHGlobal(i.ActivationRecord);
+                i.ActivationRecord = IntPtr.Zero;
+                throw new LuaException("ActiationRecord seems to be invalid");
+            }
         }
 
         private string GetFuncStackLevel(int lvl)
@@ -838,45 +848,31 @@ namespace LuaSharp
         private static extern int Lua_sethook(IntPtr L, IntPtr func, LuaHookMask mask, int count);
 
         // throws on invalid stack lvl, returns null on non existent local
-        public override string GetLocalName(int lvl, int localnum)
+        public override string GetLocalName(DebugInfo i, int localnum)
         {
-            IntPtr ar = Marshal.AllocHGlobal(Marshal.SizeOf<LuaDebugRecord>());
-            if (Lua_getstack(State, lvl, ar) == 0)
-            {
-                Marshal.FreeHGlobal(ar);
-                throw new LuaException("invalid call stack level");
-            }
-            IntPtr s = Lua_getlocal(State, ar, localnum);
-            Marshal.FreeHGlobal(ar);
+            if (i.ActivationRecord == IntPtr.Zero)
+                throw new LuaException("i has no ActivationRecord");
+            IntPtr s = Lua_getlocal(State, i.ActivationRecord, localnum);
+            Type(-1);
             if (s != IntPtr.Zero)
                 Pop(1);
             return Marshal.PtrToStringAnsi(s);
         }
-        public override void GetLocal(int lvl, int localnum)
+        public override void GetLocal(DebugInfo i, int localnum)
         {
-            IntPtr ar = Marshal.AllocHGlobal(Marshal.SizeOf<LuaDebugRecord>());
-            if (Lua_getstack(State, lvl, ar) == 0)
-            {
-                Marshal.FreeHGlobal(ar);
-                throw new LuaException("invalid call stack level");
-            }
-            IntPtr s = Lua_getlocal(State, ar, localnum);
-            Marshal.FreeHGlobal(ar);
+            if (i.ActivationRecord == IntPtr.Zero)
+                throw new LuaException("i has no ActivationRecord");
+            IntPtr s = Lua_getlocal(State, i.ActivationRecord, localnum);
             if (s == IntPtr.Zero)
                 throw new LuaException("invalid local");
         }
-        public override void SetLocal(int lvl, int localnum)
+        public override void SetLocal(DebugInfo i, int localnum)
         {
             if (Top < 1)
                 throw new LuaException("nothing on the stack to set to");
-            IntPtr ar = Marshal.AllocHGlobal(Marshal.SizeOf<LuaDebugRecord>());
-            if (Lua_getstack(State, lvl, ar) == 0)
-            {
-                Marshal.FreeHGlobal(ar);
-                throw new LuaException("invalid call stack level");
-            }
-            IntPtr s = Lua_setlocal(State, ar, localnum);
-            Marshal.FreeHGlobal(ar);
+            if (i.ActivationRecord == IntPtr.Zero)
+                throw new LuaException("i has no ActivationRecord");
+            IntPtr s = Lua_setlocal(State, i.ActivationRecord, localnum);
             if (s == IntPtr.Zero)
                 throw new LuaException("invalid local");
         }
@@ -884,7 +880,7 @@ namespace LuaSharp
         {
             CheckType(funcidx, LuaType.Function);
             IntPtr s = Lua_getupvalue(State, funcidx, upvalue);
-            if (s == IntPtr.Zero)
+            if (s != IntPtr.Zero)
                 Pop(1);
             return Marshal.PtrToStringAnsi(s);
         }
@@ -941,20 +937,17 @@ namespace LuaSharp
                     LuaState st = new LuaState50(s);
                     int info = Lua_getinfo(s, "ulSn", debugrectord);
                     LuaDebugRecord r = Marshal.PtrToStructure<LuaDebugRecord>(debugrectord);
-                    DebugInfo i = new DebugInfo()
+                    DebugInfo i;
+                    if (info == 0)
                     {
-                        Event = r.debugEvent,
-                    };
-                    if (info != 0)
+                        i = new DebugInfo()
+                        {
+                            Event = r.debugEvent,
+                        };
+                    }
+                    else
                     {
-                        i.Name = Marshal.PtrToStringAnsi(r.name) ?? "";
-                        i.NameWhat = Marshal.PtrToStringAnsi(r.namewhat) ?? "";
-                        i.What = Marshal.PtrToStringAnsi(r.what) ?? "";
-                        i.Source = Marshal.PtrToStringAnsi(r.source) ?? "";
-                        i.CurrentLine = r.currentline;
-                        i.NumUpvalues = r.nups;
-                        i.LineDefined = r.linedefined;
-                        i.ShortSource = r.short_src;
+                        i = ToDebugInfo(r, debugrectord, false);
                     }
                     func(st, i);
                 }
