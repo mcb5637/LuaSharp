@@ -24,7 +24,9 @@ namespace LuaSharp
             public string short_src; /* (S) */
 
             /* private part */
+#pragma warning disable IDE0044 // Add readonly modifier
             private int privateInt;  /* active function */
+#pragma warning restore IDE0044 // Add readonly modifier
         }
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -88,6 +90,25 @@ namespace LuaSharp
             HookFunc = null;
             closed = true;
         }
+
+        // string marshaling
+        private static string ToString(IntPtr p)
+        {
+            return Marshal.PtrToStringUTF8(p);
+        }
+        private static IntPtr FromString(string s)
+        {
+            return Marshal.StringToCoTaskMemUTF8(s);
+        }
+        private static void FreeFromString(IntPtr p)
+        {
+            Marshal.FreeCoTaskMem(p);
+        }
+        private static int FromStringLen(string code)
+        {
+            return Encoding.UTF8.GetByteCount(code);
+        }
+
 
 
         // error funcs
@@ -325,7 +346,7 @@ namespace LuaSharp
             IntPtr ptr = Lua_tostring(State, ind);
             if (ptr == IntPtr.Zero)
                 return null;
-            return Marshal.PtrToStringAnsi(ptr);
+            return ToString(ptr);
         }
         public override IntPtr ToUserdata(int ind)
         {
@@ -374,15 +395,9 @@ namespace LuaSharp
         public override void Push(string s)
         {
             CheckStack(1);
-            IntPtr b = Marshal.StringToHGlobalAnsi(s);
-            try
-            {
-                Lua_pushstring(State, b);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(b);
-            }
+            IntPtr b = FromString(s);
+            Lua_pushstring(State, b);
+            FreeFromString(b);
         }
         public override void Push()
         {
@@ -400,7 +415,7 @@ namespace LuaSharp
         }
         private static readonly string FuncUDMeta = "LuaSharpFuncUDMeta";
         private static readonly LuaCFunc FuncUDGC = (IntPtr p) => {
-            LuaState50 s = new LuaState50(p);
+            LuaState50 s = new(p);
             IntPtr ud = Lua_touserdata(p, s.UPVALUEINDEX(1));
             IntPtr h = Marshal.ReadIntPtr(ud);
             GCHandle.FromIntPtr(h).Free();
@@ -431,7 +446,7 @@ namespace LuaSharp
             CheckStack(2);
             LuaCFunc p = (IntPtr pt) =>
             {
-                LuaState50 s = new LuaState50(pt);
+                LuaState50 s = new(pt);
                 s.CurrentUpvalues = n;
                 try
                 {
@@ -488,41 +503,25 @@ namespace LuaSharp
         }
         public override string GetMetatableEventString(MetaEvent e)
         {
-            switch (e)
+            return e switch
             {
-                case MetaEvent.Add:
-                    return "__add";
-                case MetaEvent.Subtract:
-                    return "__sub";
-                case MetaEvent.Multiply:
-                    return "__mul";
-                case MetaEvent.Divide:
-                    return "__div";
-                case MetaEvent.Pow:
-                    return "__pow";
-                case MetaEvent.UnaryMinus:
-                    return "__unm";
-                case MetaEvent.Concat:
-                    return "__concat";
-                case MetaEvent.Equals:
-                    return "__eq";
-                case MetaEvent.LessThan:
-                    return "__lt";
-                case MetaEvent.LessOrEquals:
-                    return "__le";
-                case MetaEvent.Index:
-                    return "__index";
-                case MetaEvent.NewIndex:
-                    return "__newindex";
-                case MetaEvent.Call:
-                    return "__call";
-                case MetaEvent.Finalizer:
-                    return "__gc";
-                case MetaEvent.WeakTable:
-                    return "__mode";
-                default:
-                    return "";
-            }
+                MetaEvent.Add => "__add",
+                MetaEvent.Subtract => "__sub",
+                MetaEvent.Multiply => "__mul",
+                MetaEvent.Divide => "__div",
+                MetaEvent.Pow => "__pow",
+                MetaEvent.UnaryMinus => "__unm",
+                MetaEvent.Concat => "__concat",
+                MetaEvent.Equals => "__eq",
+                MetaEvent.LessThan => "__lt",
+                MetaEvent.LessOrEquals => "__le",
+                MetaEvent.Index => "__index",
+                MetaEvent.NewIndex => "__newindex",
+                MetaEvent.Call => "__call",
+                MetaEvent.Finalizer => "__gc",
+                MetaEvent.WeakTable => "__mode",
+                _ => "",
+            };
         }
         public override void Push(MetaEvent e)
         {
@@ -531,9 +530,9 @@ namespace LuaSharp
         public override bool CallMeta(int obj, string ev)
         {
             CheckIndex(obj);
-            IntPtr b = Marshal.StringToHGlobalAnsi(ev);
+            IntPtr b = FromString(ev);
             int r = LuaL_callmeta(State, obj, b);
-            Marshal.FreeHGlobal(b);
+            FreeFromString(b);
             return r != 0;
         }
         public override bool CallMeta(int obj, MetaEvent ev)
@@ -543,9 +542,9 @@ namespace LuaSharp
         public override bool GetMetaField(int obj, string ev)
         {
             CheckIndex(obj);
-            IntPtr b = Marshal.StringToHGlobalAnsi(ev);
+            IntPtr b = FromString(ev);
             int r = LuaL_getmetafield(State, obj, b);
-            Marshal.FreeHGlobal(b);
+            FreeFromString(b);
             return r != 0;
         }
         public override bool GetMetaField(int obj, MetaEvent ev)
@@ -554,15 +553,15 @@ namespace LuaSharp
         }
         public override void GetMetatableFromRegistry(string name)
         {
-            IntPtr b = Marshal.StringToHGlobalAnsi(name);
+            IntPtr b = FromString(name);
             LuaL_getmetatable(State, b);
-            Marshal.FreeHGlobal(b);
+            FreeFromString(b);
         }
         public override bool NewMetatable(string name)
         {
-            IntPtr b = Marshal.StringToHGlobalAnsi(name);
+            IntPtr b = FromString(name);
             int r = LuaL_newmetatable(State, b);
-            Marshal.FreeHGlobal(b);
+            FreeFromString(b);
             return r != 0;
         }
 
@@ -668,7 +667,7 @@ namespace LuaSharp
         private static extern void Lua_call(IntPtr l, int nargs, int nres);
         private static readonly LuaCFunc PCallStackAttacher = (IntPtr p) =>
         {
-            LuaState50 s = new LuaState50(p);
+            LuaState50 s = new(p);
             string st = s.ToString(1);
             if (st == null)
                 return 1;
@@ -703,7 +702,7 @@ namespace LuaSharp
         [DllImport(LuaDll, EntryPoint = "lua_getstack", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_getstack(IntPtr l, int lvl, IntPtr ar);
         [DllImport(LuaDll, EntryPoint = "lua_getinfo", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int Lua_getinfo(IntPtr l, string what, IntPtr ar);
+        private static extern int Lua_getinfo(IntPtr l, IntPtr what, IntPtr ar);
         public override string ToDebugString(int i)
         {
             switch (Type(i))
@@ -740,15 +739,15 @@ namespace LuaSharp
                     return "unknown";
             }
         }
-        private DebugInfo ToDebugInfo(LuaDebugRecord r, IntPtr ar, bool free = true)
+        private static DebugInfo ToDebugInfo(LuaDebugRecord r, IntPtr ar, bool free = true)
         {
             return new DebugInfo
             {
                 Event = r.debugEvent,
-                Name = Marshal.PtrToStringAnsi(r.name),
-                NameWhat = Marshal.PtrToStringAnsi(r.namewhat) ?? "",
-                What = Marshal.PtrToStringAnsi(r.what) ?? "",
-                Source = Marshal.PtrToStringAnsi(r.source) ?? "",
+                Name = ToString(r.name),
+                NameWhat = ToString(r.namewhat) ?? "",
+                What = ToString(r.what) ?? "",
+                Source = ToString(r.source) ?? "",
                 CurrentLine = r.currentline,
                 NumUpvalues = r.nups,
                 LineDefined = r.linedefined,
@@ -765,11 +764,14 @@ namespace LuaSharp
                 Marshal.FreeHGlobal(ar);
                 throw new LuaException("invalid call stack level");
             }
-            if (Lua_getinfo(State, push ? "fulSn" : "ulSn", ar) == 0)
+            IntPtr istr = FromString(push ? "fulSn" : "ulSn");
+            if (Lua_getinfo(State, istr, ar) == 0)
             {
+                FreeFromString(istr);
                 Marshal.FreeHGlobal(ar);
                 throw new LuaException("somehow the option string got messed up");
             }
+            FreeFromString(istr);
             LuaDebugRecord r = Marshal.PtrToStructure<LuaDebugRecord>(ar);
             return ToDebugInfo(r, ar);
         }
@@ -777,11 +779,14 @@ namespace LuaSharp
         {
             CheckType(-1, LuaType.Function);
             IntPtr ar = Marshal.AllocHGlobal(Marshal.SizeOf<LuaDebugRecord>());
-            if (Lua_getinfo(State, ">ulSn", ar) == 0)
+            IntPtr istr = FromString(">ulSn");
+            if (Lua_getinfo(State, istr, ar) == 0)
             {
+                FreeFromString(istr);
                 Marshal.FreeHGlobal(ar);
                 throw new LuaException("somehow the option string got messed up");
             }
+            FreeFromString(istr);
             LuaDebugRecord r = Marshal.PtrToStructure<LuaDebugRecord>(ar);
             Marshal.FreeHGlobal(ar);
             return ToDebugInfo(r, IntPtr.Zero); // no ar here, cause we cannot change locals of this anyway
@@ -790,12 +795,15 @@ namespace LuaSharp
         {
             if (i.ActivationRecord == IntPtr.Zero)
                 throw new LuaException("i has no ActivationRecord");
-            if (Lua_getinfo(State, "f", i.ActivationRecord) == 0)
+            IntPtr istr = FromString("f");
+            if (Lua_getinfo(State, istr, i.ActivationRecord) == 0)
             {
+                FreeFromString(istr);
                 Marshal.FreeHGlobal(i.ActivationRecord);
                 i.ActivationRecord = IntPtr.Zero;
                 throw new LuaException("ActiationRecord seems to be invalid");
             }
+            FreeFromString(istr);
         }
 
         private string GetFuncStackLevel(int lvl)
@@ -856,7 +864,7 @@ namespace LuaSharp
             Type(-1);
             if (s != IntPtr.Zero)
                 Pop(1);
-            return Marshal.PtrToStringAnsi(s);
+            return ToString(s);
         }
         public override void GetLocal(DebugInfo i, int localnum)
         {
@@ -882,7 +890,7 @@ namespace LuaSharp
             IntPtr s = Lua_getupvalue(State, funcidx, upvalue);
             if (s != IntPtr.Zero)
                 Pop(1);
-            return Marshal.PtrToStringAnsi(s);
+            return ToString(s);
         }
         public override void GetUpvalue(int funcidx, int upvalue)
         {
@@ -935,7 +943,9 @@ namespace LuaSharp
                 try
                 {
                     LuaState st = new LuaState50(s);
-                    int info = Lua_getinfo(s, "ulSn", debugrectord);
+                    IntPtr istr = FromString("ulSn");
+                    int info = Lua_getinfo(s, istr, debugrectord);
+                    FreeFromString(istr);
                     LuaDebugRecord r = Marshal.PtrToStructure<LuaDebugRecord>(debugrectord);
                     DebugInfo i;
                     if (info == 0)
@@ -1029,20 +1039,21 @@ namespace LuaSharp
         private static extern LuaResult Lua_dobuffer(IntPtr l, IntPtr b, int bufflen, IntPtr name);
         public override void LoadFile(string filename)
         {
-            IntPtr f = Marshal.StringToHGlobalAnsi(filename);
+            IntPtr f = FromString(filename);
             LuaResult r = LuaL_loadfile(State, f);
-            Marshal.FreeHGlobal(f);
+            FreeFromString(f);
             CheckError(r);
         }
         public override void LoadBuffer(string code, string name)
         {
-            IntPtr c = Marshal.StringToHGlobalAnsi(code);
-            IntPtr n = Marshal.StringToHGlobalAnsi(name);
-            LuaResult r = LuaL_loadbuffer(State, c, Encoding.ASCII.GetByteCount(code), n);
-            Marshal.FreeHGlobal(c);
-            Marshal.FreeHGlobal(n);
+            IntPtr c = FromString(code);
+            IntPtr n = FromString(name);
+            LuaResult r = LuaL_loadbuffer(State, c, FromStringLen(code), n);
+            FreeFromString(c);
+            FreeFromString(n);
             CheckError(r);
         }
+
         public override void DoFile(string filename)
         {
             LoadFile(filename);
@@ -1107,7 +1118,7 @@ namespace LuaSharp
         {
             Lua_rawgeti(State, REGISTRYINDEX, r.r);
         }
-        public override Reference NOREF => new Reference(-2);
-        public override Reference REFNIL => new Reference(-1);
+        public override Reference NOREF => new(-2);
+        public override Reference REFNIL => new(-1);
     }
 }

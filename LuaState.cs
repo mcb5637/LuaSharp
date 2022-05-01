@@ -142,6 +142,7 @@ namespace LuaSharp
         public void Dispose()
         {
             Close();
+            GC.SuppressFinalize(this);
         }
 
         public abstract IntPtr State { get; protected set; }
@@ -336,7 +337,7 @@ namespace LuaSharp
         public void PushObjectAsUserdata<T>(T ob) where T : class
         {
             if (ob == null)
-                throw new ArgumentNullException("ob null");
+                throw new ArgumentNullException(nameof(ob));
             IntPtr o = GCHandle.ToIntPtr(GCHandle.Alloc(ob));
             IntPtr ud = NewUserdata(Marshal.SizeOf<IntPtr>());
             Marshal.WriteIntPtr(ud, o);
