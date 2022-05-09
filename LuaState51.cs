@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace LuaSharp
 {
-    public class LuaState50 : LuaState
+    public class LuaState51 : LuaState
     {
         [StructLayout(LayoutKind.Sequential)]
         private struct LuaDebugRecord
@@ -20,6 +20,7 @@ namespace LuaSharp
             public int currentline; /* (l) */
             public int nups;        /* (u) number of upvalues */
             public int linedefined; /* (S) */
+            public int lastlinedefined; /* (S) */
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 60)]
             public string short_src; /* (S) */
 
@@ -32,11 +33,12 @@ namespace LuaSharp
         public enum LuaResult
         {
             OK,
+            YIELD,
             ERRRUN,
-            ERRFILE,
             ERRSYNTAX,
             ERRMEM,
-            ERRERR
+            ERRERR,
+            ERRFILE
         }
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -44,45 +46,30 @@ namespace LuaSharp
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void LuaHookFunc(IntPtr L, IntPtr debugrecord);
 
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_open", CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr Lua_open();
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_close", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "luaL_newstate", CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr LuaL_newstate();
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_close", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_close(IntPtr l);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "luaopen_base", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void Luaopen_base(IntPtr l);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "luaopen_string", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void Luaopen_string(IntPtr l);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "luaopen_table", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void Luaopen_table(IntPtr l);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "luaopen_math", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void Luaopen_math(IntPtr l);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "luaopen_io", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void Luaopen_io(IntPtr l);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "luaopen_debug", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void Luaopen_debug(IntPtr l);
+        [DllImport(Globals.Lua51Dll, EntryPoint = "luaL_openlibs", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void LuaL_openlibs(IntPtr l);
 
         public override IntPtr State { get; protected set; }
         private bool AutoClose;
         private int CurrentUpvalues = 0;
-        public LuaState50(IntPtr s, bool autoClose = false)
+        public LuaState51(IntPtr s, bool autoClose = false)
         {
             State = s;
             AutoClose = autoClose;
             PrepareFuncUDMeta();
         }
-        public LuaState50()
+        public LuaState51()
         {
-            State = Lua_open();
+            State = LuaL_newstate();
             AutoClose = true;
             PrepareFuncUDMeta();
-            Luaopen_base(State);
-            Luaopen_string(State);
-            Luaopen_table(State);
-            Luaopen_math(State);
-            Luaopen_io(State);
-            Luaopen_debug(State);
+            LuaL_openlibs(State);
         }
-        ~LuaState50()
+        ~LuaState51()
         {
             if (closed)
                 return;
@@ -102,7 +89,7 @@ namespace LuaSharp
         }
 
         // error funcs
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_error", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_error", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_error(IntPtr l);
         private void CheckError(LuaResult r)
         {
@@ -116,23 +103,24 @@ namespace LuaSharp
 
 
         // basic stack funcs
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_gettop", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_gettop", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_gettop(IntPtr l);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_settop", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_settop", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_settop(IntPtr l, int i);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_checkstack", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_checkstack", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_checkstack(IntPtr l, int i);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_pushvalue", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_pushvalue", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_pushvalue(IntPtr l, int i);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_remove", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_remove", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_remove(IntPtr l, int i);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_insert", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_insert", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_insert(IntPtr l, int i);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_replace", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_replace", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_replace(IntPtr l, int i);
 
+        public int ENVIRONINDEX => -10001;
         public override int REGISTRYINDEX => -10000;
-        public override int GLOBALSINDEX => -10001;
+        public override int GLOBALSINDEX => -10002;
         public override int UPVALUEINDEX(int i)
         {
             if (i <= 0)
@@ -219,21 +207,21 @@ namespace LuaSharp
         }
 
         // bacic checks
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_type", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_type", CallingConvention = CallingConvention.Cdecl)]
         private static extern LuaType Lua_type(IntPtr l, int i);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_equal", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_equal", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_equal(IntPtr l, int i, int i2);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_rawequal", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_rawequal", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_rawequal(IntPtr l, int i, int i2);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_lessthan", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_lessthan", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_lessthan(IntPtr l, int i, int i2);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_isnumber", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_isnumber", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_isnumber(IntPtr l, int i);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_isstring", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_isstring", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_isstring(IntPtr l, int i);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_iscfunction", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_iscfunction", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_iscfunction(IntPtr l, int i);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_isuserdata", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_isuserdata", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_isuserdata(IntPtr l, int i);
         public override LuaType Type(int i)
         {
@@ -332,22 +320,20 @@ namespace LuaSharp
         }
 
         // get values from stack
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_toboolean", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_toboolean", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_toboolean(IntPtr l, int ind);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_tonumber", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_tonumber", CallingConvention = CallingConvention.Cdecl)]
         private static extern double Lua_tonumber(IntPtr l, int ind);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_tostring", CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr Lua_tostring(IntPtr l, int ind);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_tocfunction", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_tolstring", CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr Lua_tolstring(IntPtr l, int ind, IntPtr size);
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_tocfunction", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr Lua_tocfunction(IntPtr l, int ind);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_touserdata", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_touserdata", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr Lua_touserdata(IntPtr l, int ind);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_topointer", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_topointer", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr Lua_topointer(IntPtr l, int ind);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_strlen", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int Lua_strlen(IntPtr l, int ind);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "luaL_getn", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int LuaL_getn(IntPtr l, int ind);
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_objlen", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int Lua_objlen(IntPtr l, int ind);
         // tothread
         public override bool ToBoolean(int i)
         {
@@ -362,10 +348,15 @@ namespace LuaSharp
         public override string ToString(int ind)
         {
             CheckIndex(ind);
-            IntPtr ptr = Lua_tostring(State, ind);
+            IntPtr size = Marshal.AllocHGlobal(Marshal.SizeOf<Int32>());
+            IntPtr ptr = Lua_tolstring(State, ind, size);
             if (ptr == IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(size);
                 return null;
-            int len = Lua_strlen(State, ind);
+            }
+            int len = Marshal.ReadInt32(size);
+            Marshal.FreeHGlobal(size);
             return ptr.MarshalToString(len);
         }
         public override IntPtr ToUserdata(int ind)
@@ -384,43 +375,27 @@ namespace LuaSharp
                 TypeError(idx, "CFunction");
             return Lua_tocfunction(State, idx);
         }
-        /// <summary>
-        /// returns the length of an object. for strings this is the number of bytes (==chars if each char is one byte).
-        /// for tables this is one less than the first integer key with a nil value (except if manualy set to something else).
-        /// for full userdata, it is the size of the allocated block of memory.
-        /// <para>[-0,+0,-]</para>
-        /// </summary>
-        /// <param name="index"></param>
-        /// <returns>size</returns>
         public override int ObjLength(int index)
         {
-            switch (Type(index))
-            {
-                case LuaType.String:
-                    return Lua_strlen(State, index);
-                case LuaType.Table:
-                    return LuaL_getn(State, index);
-                default:
-                    return 0;
-            }
+            return Lua_objlen(State, index);
         }
 
 
         // push to stack
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_pushboolean", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_pushboolean", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_pushboolean(IntPtr l, int n);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_pushnumber", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_pushnumber", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_pushnumber(IntPtr l, double n);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_pushlstring", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_pushlstring", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_pushlstring(IntPtr l, IntPtr p, int len);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_pushnil", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_pushnil", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_pushnil(IntPtr l);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_pushcclosure", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_pushcclosure", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_pushcclosure(IntPtr l, IntPtr f, int n);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_pushlightuserdata", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_pushlightuserdata", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_pushlightuserdata(IntPtr l, IntPtr p);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_newtable", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void Lua_newtable(IntPtr l);
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_createtable", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void Lua_createtable(IntPtr l, int narr, int nrec);
         public override void Push(bool b)
         {
             CheckStack(1);
@@ -447,7 +422,7 @@ namespace LuaSharp
         public override void NewTable()
         {
             CheckStack(1);
-            Lua_newtable(State);
+            Lua_createtable(State, 0, 0);
         }
         protected override IntPtr NewUserdata(int size)
         {
@@ -455,7 +430,7 @@ namespace LuaSharp
         }
         private static readonly string FuncUDMeta = "LuaSharpFuncUDMeta";
         private static readonly LuaCFunc FuncUDGC = (IntPtr p) => {
-            LuaState50 s = new LuaState50(p);
+            LuaState51 s = new LuaState51(p);
             IntPtr ud = Lua_touserdata(p, s.UPVALUEINDEX(1));
             IntPtr h = Marshal.ReadIntPtr(ud);
             GCHandle.FromIntPtr(h).Free();
@@ -485,7 +460,7 @@ namespace LuaSharp
             CheckStack(2);
             LuaCFunc p = (IntPtr pt) =>
             {
-                LuaState50 s = new LuaState50(pt)
+                LuaState51 s = new LuaState51(pt)
                 {
                     CurrentUpvalues = n
                 };
@@ -515,19 +490,17 @@ namespace LuaSharp
         // lud, concat
 
         // metatable / udata
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_getmetatable", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_getmetatable", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_getmetatable(IntPtr l, int i);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_setmetatable", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_setmetatable", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_setmetatable(IntPtr l, int i);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_newuserdata", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_newuserdata", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr Lua_newuserdata(IntPtr l, int size);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "luaL_callmeta", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "luaL_callmeta", CallingConvention = CallingConvention.Cdecl)]
         private static extern int LuaL_callmeta(IntPtr l, int i, IntPtr ev);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "luaL_getmetafield", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "luaL_getmetafield", CallingConvention = CallingConvention.Cdecl)]
         private static extern int LuaL_getmetafield(IntPtr l, int i, IntPtr ev);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "luaL_getmetatable", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void LuaL_getmetatable(IntPtr l, IntPtr name);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "luaL_newmetatable", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "luaL_newmetatable", CallingConvention = CallingConvention.Cdecl)]
         private static extern int LuaL_newmetatable(IntPtr l, IntPtr name);
         public override bool GetMetatable(int i)
         {
@@ -613,10 +586,8 @@ namespace LuaSharp
         }
         public override void GetMetatableFromRegistry(string name)
         {
-            using (StringMarshaler.StringPointerHolder h = name.MarshalFromString())
-            {
-                LuaL_getmetatable(State, h.String);
-            }
+            Push(name);
+            GetTableRaw(REGISTRYINDEX);
         }
         public override bool NewMetatable(string name)
         {
@@ -628,19 +599,19 @@ namespace LuaSharp
         }
 
         // tableaccess
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_gettable", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_gettable", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_gettable(IntPtr l, int i);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_rawget", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_rawget", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_rawget(IntPtr l, int i);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_settable", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_settable", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_settable(IntPtr l, int i);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_rawset", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_rawset", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_rawset(IntPtr l, int i);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_next", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_next", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_next(IntPtr l, int i);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_rawgeti", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_rawgeti", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_rawgeti(IntPtr l, int i, int k);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_rawseti", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_rawseti", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_rawseti(IntPtr l, int i, int k);
         public override void GetTable(int i)
         {
@@ -722,13 +693,13 @@ namespace LuaSharp
         }
 
         // calling
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_pcall", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_pcall", CallingConvention = CallingConvention.Cdecl)]
         private static extern LuaResult Lua_pcall(IntPtr l, int nargs, int nres, int errfunc);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_call", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_call", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Lua_call(IntPtr l, int nargs, int nres);
         private static readonly LuaCFunc PCallStackAttacher = (IntPtr p) =>
         {
-            LuaState50 s = new LuaState50(p);
+            LuaState51 s = new LuaState51(p);
             string st = s.ToString(1);
             if (st == null)
                 return 1;
@@ -760,9 +731,9 @@ namespace LuaSharp
         }
 
         // debug
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_getstack", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_getstack", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_getstack(IntPtr l, int lvl, IntPtr ar);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_getinfo", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_getinfo", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_getinfo(IntPtr l, IntPtr what, IntPtr ar);
         public override string ToDebugString(int i)
         {
@@ -813,6 +784,7 @@ namespace LuaSharp
                 NumUpvalues = r.nups,
                 LineDefined = r.linedefined,
                 ShortSource = r.short_src,
+                LastLineDefined = r.lastlinedefined,
                 ActivationRecord = ar,
                 FreeAROnFinalize = free,
             };
@@ -905,15 +877,15 @@ namespace LuaSharp
             }
             return s;
         }
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_getlocal", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_getlocal", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr Lua_getlocal(IntPtr L, IntPtr ar, int n);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_setlocal", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_setlocal", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr Lua_setlocal(IntPtr L, IntPtr ar, int n);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_getupvalue", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_getupvalue", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr Lua_getupvalue(IntPtr L, int funcindex, int n);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_setupvalue", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_setupvalue", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr Lua_setupvalue(IntPtr L, int funcindex, int n);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_sethook", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "lua_sethook", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_sethook(IntPtr L, IntPtr func, LuaHookMask mask, int count);
 
         // throws on invalid stack lvl, returns null on non existent local
@@ -995,7 +967,7 @@ namespace LuaSharp
             {
                 try
                 {
-                    LuaState st = new LuaState50(s);
+                    LuaState st = new LuaState51(s);
                     using (StringMarshaler.StringPointerHolder h = "ulSn".MarshalFromString())
                     {
                         int info = Lua_getinfo(s, h.String, debugrectord);
@@ -1083,14 +1055,10 @@ namespace LuaSharp
         }
 
         // load lua
-        [DllImport(Globals.Lua50Dll, EntryPoint = "luaL_loadfile", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "luaL_loadfile", CallingConvention = CallingConvention.Cdecl)]
         private static extern LuaResult LuaL_loadfile(IntPtr l, IntPtr t);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "luaL_loadbuffer", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "luaL_loadbuffer", CallingConvention = CallingConvention.Cdecl)]
         private static extern LuaResult LuaL_loadbuffer(IntPtr l, IntPtr b, int bufflen, IntPtr name);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_dofile", CallingConvention = CallingConvention.Cdecl)]
-        private static extern LuaResult Lua_dofile(IntPtr l, IntPtr t);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_dobuffer", CallingConvention = CallingConvention.Cdecl)]
-        private static extern LuaResult Lua_dobuffer(IntPtr l, IntPtr b, int bufflen, IntPtr name);
         public override void LoadFile(string filename)
         {
             using (StringMarshaler.StringPointerHolder h = filename.MarshalFromString())
@@ -1154,9 +1122,9 @@ namespace LuaSharp
         }
 
         // ref
-        [DllImport(Globals.Lua50Dll, EntryPoint = "luaL_ref", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "luaL_ref", CallingConvention = CallingConvention.Cdecl)]
         private static extern int LuaL_ref(IntPtr l, int t);
-        [DllImport(Globals.Lua50Dll, EntryPoint = "luaL_unref", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Globals.Lua51Dll, EntryPoint = "luaL_unref", CallingConvention = CallingConvention.Cdecl)]
         private static extern void LuaL_unref(IntPtr l, int t, int re);
 
         public override Reference Ref()

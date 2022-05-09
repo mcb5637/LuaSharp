@@ -11,5 +11,6 @@ namespace LuaSharp
     internal static class Globals
     {
         public const string Lua50Dll = "lua50/lua50.dll";
+        public const string Lua51Dll = "lua51/lua51.dll";
     }
 }
