@@ -735,7 +735,7 @@ namespace LuaSharp
             s.CurrentUpvalues = 1;
             int calldepth = (int)s.ToNumber(s.UPVALUEINDEX(1));
             int currdepth = s.GetCurrentFuncStackSize();
-            s.Push($"{st}\r\n{s.GetStackTrace(1, currdepth - calldepth, "   at lua ")}");
+            s.Push($"{st}\r\n{s.GetStackTrace(1, currdepth - calldepth, false, false, "   at lua ")}");
             return 1;
         };
         public override void PCall(int nargs, int nres)
@@ -764,42 +764,6 @@ namespace LuaSharp
         private static extern int Lua_getstack(IntPtr l, int lvl, IntPtr ar);
         [DllImport(Globals.Lua50Dll, EntryPoint = "lua_getinfo", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_getinfo(IntPtr l, IntPtr what, IntPtr ar);
-        public override string ToDebugString(int i)
-        {
-            switch (Type(i))
-            {
-                case LuaType.Nil:
-                    return "nil";
-                case LuaType.Boolean:
-                    return ToBoolean(i) ? "true" : "false";
-                case LuaType.LightUserData:
-                    return $"<LightUserdata 0x{(uint)ToUserdata(i):X}>";
-                case LuaType.Number:
-                    return ToNumber(i).ToString();
-                case LuaType.String:
-                    return $"\"{ToString(i)}\"";
-                case LuaType.Table:
-                    return $"<table 0x{(uint)Lua_topointer(State, i):X}>";
-                case LuaType.Function:
-                    {
-                        if (IsCFunction(i))
-                        {
-                            return $"<function, defined in C:0x{(uint)Lua_topointer(State, i):X}>";
-                        }
-                        int t = Top;
-                        PushValue(i);
-                        DebugInfo d = GetFuncInfo();
-                        Top = t;
-                        return $"<function {d.What} {d.NameWhat} {(d.Name ?? "null")} (defined in: {d.ShortSource}:{d.CurrentLine})>";
-                    }
-                case LuaType.UserData:
-                    return $"<Userdata 0x{(uint)ToUserdata(i):X}>";
-                case LuaType.Thread:
-                    return $"<Thread 0x{(uint)Lua_topointer(State, i):X}>";
-                default:
-                    return "unknown";
-            }
-        }
         private static DebugInfo ToDebugInfo(LuaDebugRecord r, IntPtr ar, bool free = true)
         {
             return new DebugInfo
@@ -823,7 +787,7 @@ namespace LuaSharp
             if (Lua_getstack(State, lvl, ar) == 0)
             {
                 Marshal.FreeHGlobal(ar);
-                throw new LuaException("invalid call stack level");
+                return null;
             }
             using (StringMarshaler.StringPointerHolder h = (push ? "fulSn" : "ulSn").MarshalFromString())
             {
@@ -867,11 +831,6 @@ namespace LuaSharp
             }
         }
 
-        private string GetFuncStackLevel(int lvl)
-        {
-            DebugInfo i = GetStackInfo(lvl);
-            return $"{i.What} {i.NameWhat} {(i.Name ?? "null")} (defined in: {i.ShortSource}:{i.CurrentLine})";
-        }
         public override int GetCurrentFuncStackSize()
         {
             int i = 0;
@@ -885,25 +844,6 @@ namespace LuaSharp
                 }
                 i++;
             }
-        }
-        public override string GetStackTrace(int from = 0, int to = -1, string lineprefix = "")
-        {
-            string s = "";
-            int l = from;
-            while (l != to)
-            {
-                try
-                {
-                    string c = GetFuncStackLevel(l);
-                    s += lineprefix + c + "\r\n";
-                    l++;
-                }
-                catch (LuaException)
-                {
-                    break;
-                }
-            }
-            return s;
         }
         [DllImport(Globals.Lua50Dll, EntryPoint = "lua_getlocal", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr Lua_getlocal(IntPtr L, IntPtr ar, int n);
@@ -922,7 +862,6 @@ namespace LuaSharp
             if (i.ActivationRecord == IntPtr.Zero)
                 throw new LuaException("i has no ActivationRecord");
             IntPtr s = Lua_getlocal(State, i.ActivationRecord, localnum);
-            Type(-1);
             if (s != IntPtr.Zero)
                 Pop(1);
             return s.MarshalToString();
@@ -971,15 +910,11 @@ namespace LuaSharp
         }
         public override string Where(int lvl)
         {
-            try
-            {
-                DebugInfo i = GetStackInfo(lvl);
-                if (i.CurrentLine > 0)
-                    return $"{i.ShortSource}:{i.CurrentLine}";
-            }
-            catch (LuaException)
-            {
-            }
+            DebugInfo i = GetStackInfo(lvl);
+            if (i == null)
+                return "";
+            if (i.CurrentLine > 0)
+                return $"{i.ShortSource}:{i.CurrentLine}";
             return "";
         }
         private LuaHookFunc HookFunc = null;

@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace LuaSharp
@@ -741,21 +742,110 @@ namespace LuaSharp
         public abstract int PCall_Debug(int nargs, int nres, int errfunc);
 
         // debug
+        protected static Regex alphaNumeric = new Regex("^[a-zA-Z0-9_]*$");
         /// <summary>
         /// turns the value at index to a debug string.
         /// <para>[-0,+0,-]</para>
         /// </summary>
         /// <param name="i">acceptable index to check</param>
+        /// <param name="tableExpand">expand this number of tables(print key,value pairs instead of adress)</param>
+        /// <param name="formatString">optional string formatting</param>
+        /// <param name="formatFunc">optional function formatting</param>
+        /// <param name="indent">indents every new line by this amount of tabs (does not indent the first line)</param>
+        /// <param name="tablesDone">remembers which tables got printed, leave null when calling it</param>
         /// <returns>debug string</returns>
-        public abstract string ToDebugString(int i);
+        public string ToDebugString(int i, int tableExpand = 0, Func<LuaState, int, string> formatString = null, Func<LuaState, int, string> formatFunc = null, int indent = 0, Dictionary<IntPtr, bool> tablesDone = null)
+        {
+            if (tablesDone == null)
+                tablesDone = new Dictionary<IntPtr, bool>();
+            switch (Type(i))
+            {
+                case LuaType.Nil:
+                    return "nil";
+                case LuaType.Boolean:
+                    return ToBoolean(i) ? "true" : "false";
+                case LuaType.LightUserData:
+                    return $"<LightUserdata 0x{(uint)ToUserdata(i):X}>";
+                case LuaType.Number:
+                    return ToNumber(i).ToString();
+                case LuaType.String:
+                    if (formatString != null)
+                        return formatString(this, i);
+                    else
+                        return $"\"{ToString(i)}\"";
+                case LuaType.Function:
+                    if (formatFunc != null)
+                    {
+                        return formatFunc(this, i);
+                    }
+                    else
+                    {
+                        if (IsCFunction(i))
+                        {
+                            return $"<function, defined in C:0x{(uint)ToCFunction(i):X}>";
+                        }
+                        int t = Top;
+                        PushValue(i);
+                        DebugInfo d = GetFuncInfo();
+                        Top = t;
+                        return $"<function {d.What} {d.NameWhat} {(d.Name ?? "null")} (defined in: {d.ShortSource}:{d.CurrentLine})>";
+                    }
+                case LuaType.Table:
+                    if (tableExpand > 1)
+                    {
+                        IntPtr table = ToPointer(i);
+                        if (tablesDone.ContainsKey(table))
+                        {
+                            return $"<table, recursion 0x{(uint)ToPointer(i):X}>";
+                        }
+                        Dictionary<string, string> tcontents = new Dictionary<string, string>();
+                        string r = "{";
+                        tablesDone.Add(table, true);
+                        foreach (LuaType _ in Pairs(i))
+                        {
+                            string val = ToDebugString(-1, tableExpand - 1, formatString, formatFunc, indent + 1, tablesDone);
+                            string key = ToDebugString(-2, 0, formatString, formatFunc, 0, tablesDone);
+                            tcontents.Add(key, val);
+                        }
+                        string indentS = new string('\t', indent + 1);
+                        foreach (string key in tcontents.Keys.OrderBy((x) => x))
+                        {
+                            string val = tcontents[key];
+                            if (key[0] == '\"')
+                            {
+                                string rawString = key.Substring(1, key.Length - 2);
+                                if (alphaNumeric.IsMatch(rawString))
+                                    r += "\n" + indentS + rawString + " = " + val + ",";
+                                else
+                                    r += "\n" + indentS + "[" + key + "] = " + val + ",";
+                            }
+                            else
+                                r += "\n" + indentS + "[" + key + "] = " + val + ",";
+                        }
+                        r += "\n" + new string('\t', indent) + "}";
+                        return r;
+                    }
+                    else
+                    {
+                        return $"<table 0x{(uint)ToPointer(i):X}>";
+                    }
+                case LuaType.UserData:
+                    return $"<Userdata 0x{(uint)ToUserdata(i):X}>";
+                case LuaType.Thread:
+                    return $"<Thread 0x{(uint)ToPointer(i):X}>";
+                default:
+                    return "<unknown type>";
+            }
+        }
         /// <summary>
         /// gets the debug info for a stack level.
         /// stack level 0 is the current running function, n+1 is the function that called n.
+        /// returns null, if stack level invalid
         /// <para>[-0,+0|1,-]</para>
         /// </summary>
         /// <param name="lvl">stack level to query</param>
         /// <param name="push">push the running function onto the stack.</param>
-        /// <returns>level valid</returns>
+        /// <returns>debuginfo or null</returns>
         public abstract DebugInfo GetStackInfo(int lvl, bool push = false);
         /// <summary>
         /// gets the debug info for a function at ToS.
@@ -781,9 +871,56 @@ namespace LuaSharp
         /// </summary>
         /// <param name="from">stack level to start</param>
         /// <param name="to">stack level to end (may end before that, if the end of the stack is reached)</param>
-        /// <param name="lineprefix">prefix for each line</param>
+		/// <param name="upvalues">include a ToDebugString of upvalues</param>
+		/// <param name="locals">include a ToDebugString of locals</param>
+        /// <param name="lineprefix">prefix for each line, locals/upvalues get prefixed with the same length in spaces</param>
         /// <returns>stack trace</returns>
-        public abstract string GetStackTrace(int from = 0, int to = -1, string lineprefix = "");
+        public string GetStackTrace(int from = 0, int to = -1, bool upvalues = false, bool locals = false, string lineprefix = "")
+        {
+            string s = "";
+            int l = from;
+            string lineprefspace = new string(' ', lineprefix.Length);
+            while (l != to)
+            {
+                DebugInfo i = GetStackInfo(l);
+                if (i == null)
+                    break;
+                string c = $"{i.What} {i.NameWhat} {(i.Name ?? "null")} (defined in: {i.ShortSource}:{i.CurrentLine})";
+                s += lineprefix + c + "\r\n";
+                if (locals)
+                {
+                    int lin = 1;
+                    while (true)
+                    {
+                        string n = GetLocalName(i, lin);
+                        if (n == null)
+                            break;
+                        GetLocal(i, lin);
+                        s += lineprefspace + "\tlocal " + n + ToDebugString(-1) + "\r\n";
+                        Pop(1);
+                        lin++;
+                    }
+                }
+                if (upvalues)
+                {
+                    PushDebugInfoFunc(i);
+                    int uin = 1;
+                    while (true)
+                    {
+                        string n = GetUpvalueName(-1, uin);
+                        if (n == null)
+                            break;
+                        GetUpvalue(-1, uin);
+                        s += lineprefspace + "\tupvalue " + n + ToDebugString(-1) + "\r\n";
+                        Pop(1);
+                        uin++;
+                    }
+                    Pop(1);
+                }
+                l++;
+            }
+            return s;
+        }
         /// <summary>
         /// gets the name of a local variable.
         /// returns null if not existent.
