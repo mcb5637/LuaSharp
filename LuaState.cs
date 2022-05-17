@@ -988,6 +988,14 @@ namespace LuaSharp
         /// <param name="count">count</param>
         public abstract void SetHook(Action<LuaState, DebugInfo> func, LuaHookMask mask, int count);
 
+        /// <summary>
+        /// dumps a lua function to a byte array.
+        /// <para>[-0,+0,-]</para>
+        /// </summary>
+        /// <returns>byte array</returns>
+        /// <exception cref="LuaException">if it cannot get dumped</exception>
+        public abstract byte[] Dump();
+
         // checks
         /// <summary>
         /// generates an error message of the form
@@ -1276,6 +1284,16 @@ namespace LuaSharp
             if (o == null)
                 TypeError(i, typeof(T).FullName);
             return o;
+        }
+
+        /// <summary>
+        /// prepares the metatable for a userdata type. see <see cref="GetUserDataMetatable{T}"/>
+        /// </summary>
+        /// <typeparam name="T">object type</typeparam>
+        public void PrepareUserDataType<T>() where T : class
+        {
+            GetUserDataMetatable<T>();
+            Pop(1);
         }
 
         /// <summary>

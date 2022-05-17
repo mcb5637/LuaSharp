@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -43,6 +44,8 @@ namespace LuaSharp
         private delegate int LuaCFunc(IntPtr L);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void LuaHookFunc(IntPtr L, IntPtr debugrecord);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int LuaWriter(IntPtr L, IntPtr buff, int size, int data);
 
         [DllImport(Globals.Lua50Dll, EntryPoint = "lua_open", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr Lua_open();
@@ -958,6 +961,27 @@ namespace LuaSharp
             };
             if (Lua_sethook(State, Marshal.GetFunctionPointerForDelegate(HookFunc), mask, count) != 1)
                 throw new LuaException("will never happen, always returns 1");
+        }
+
+        [DllImport(Globals.Lua50Dll, EntryPoint = "lua_dump", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int Lua_dump(IntPtr l, IntPtr wr, int data);
+        public override byte[] Dump()
+        {
+            using (MemoryStream s = new MemoryStream())
+            {
+                LuaWriter wr = (IntPtr L, IntPtr buff, int size, int data) =>
+                {
+                    byte[] buff2 = new byte[size];
+                    Marshal.Copy(buff, buff2, 0, size);
+                    s.Write(buff2);
+                    return 0;
+                };
+                if (Lua_dump(State, Marshal.GetFunctionPointerForDelegate(wr), 0) != 1)
+                    throw new LuaException("unable to dump");
+                GC.KeepAlive(wr);
+                s.Flush();
+                return s.ToArray();
+            }
         }
 
         // checks
