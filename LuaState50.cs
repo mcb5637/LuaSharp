@@ -974,7 +974,7 @@ namespace LuaSharp
                 {
                     byte[] buff2 = new byte[size];
                     Marshal.Copy(buff, buff2, 0, size);
-                    s.Write(buff2);
+                    s.Write(buff2, 0, buff2.Length);
                     return 0;
                 };
                 if (Lua_dump(State, Marshal.GetFunctionPointerForDelegate(wr), 0) != 1)
