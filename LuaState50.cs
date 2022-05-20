@@ -928,6 +928,7 @@ namespace LuaSharp
                 if (Lua_sethook(State, IntPtr.Zero, LuaHookMask.None, 0) != 1)
                     throw new LuaException("will never happen, always returns 1");
                 HookFunc = null;
+                return;
             }
             HookFunc = (IntPtr s, IntPtr debugrectord) =>
             {
