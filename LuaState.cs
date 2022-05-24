@@ -732,14 +732,6 @@ namespace LuaSharp
         /// <param name="nres">number of return values</param>
         /// <exception cref="LuaException">on lua error</exception>
         public abstract void PCall(int nargs, int nres);
-        /// <summary>
-        /// calls a function. does catch lua errors and returns an error code. see <see cref="PCall"/>
-        /// </summary>
-        /// <param name="nargs">number of parameters</param>
-        /// <param name="nres">number of results</param>
-        /// <param name="errfunc">index of error func, or 0</param>
-        /// <returns>error code</returns>
-        public abstract int PCall_Debug(int nargs, int nres, int errfunc);
 
         // debug
         protected static Regex alphaNumeric = new Regex("^[a-zA-Z0-9_]*$");

@@ -725,13 +725,6 @@ namespace LuaSharp
             Remove(ecpos);
             CheckError(r);
         }
-        public override int PCall_Debug(int nargs, int nres, int errfunc)
-        {
-
-            if (Top < nargs + 1)
-                throw new LuaException($"pcall not enough vaues on the stack");
-            return (int)Lua_pcall(State, nargs, nres, errfunc);
-        }
 
         // debug
         [DllImport(Globals.Lua51Dll, EntryPoint = "lua_getstack", CallingConvention = CallingConvention.Cdecl)]
