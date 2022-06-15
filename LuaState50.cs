@@ -1061,6 +1061,17 @@ namespace LuaSharp
                 CheckError(r);
             }
         }
+        public override void LoadBuffer(byte[] code, string name)
+        {
+            using (StringMarshaler.StringPointerHolder hn = name.MarshalFromString())
+            {
+                IntPtr b = Marshal.AllocHGlobal(code.Length);
+                Marshal.Copy(code, 0, b, code.Length);
+                LuaResult r = LuaL_loadbuffer(State, b, code.Length, hn.String);
+                Marshal.FreeHGlobal(b);
+                CheckError(r);
+            }
+        }
 
         public override void DoFile(string filename)
         {
@@ -1071,6 +1082,11 @@ namespace LuaSharp
         {
             if (name == null)
                 name = code;
+            LoadBuffer(code, name);
+            PCall(0, MULTIRETURN);
+        }
+        public override void DoString(byte[] code, string name)
+        {
             LoadBuffer(code, name);
             PCall(0, MULTIRETURN);
         }

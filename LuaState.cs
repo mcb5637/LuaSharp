@@ -1080,6 +1080,14 @@ namespace LuaSharp
         /// <exception cref="LuaException">on lua error</exception>
         public abstract void LoadBuffer(string code, string name);
         /// <summary>
+        /// loads a buffer as lua code and leaves it on the stack to execute.
+        /// <para>[-0,+1,m]</para>
+        /// </summary>
+        /// <param name="code">lua code</param>
+        /// <param name="name">code name</param>
+        /// <exception cref="LuaException">on lua error</exception>
+        public abstract void LoadBuffer(byte[] code, string name);
+        /// <summary>
         /// loads a file as lua code and executes it.
         /// <para>[-0,+?,m]</para>
         /// </summary>
@@ -1094,6 +1102,14 @@ namespace LuaSharp
         /// <param name="name">code name</param>
         /// <exception cref="LuaException">on lua error</exception>
         public abstract void DoString(string code, string name = null);
+        /// <summary>
+        /// loads a string as lua code and executes it.
+        /// <para>[-0,+?,m]</para>
+        /// </summary>
+        /// <param name="code">lua code</param>
+        /// <param name="name">code name</param>
+        /// <exception cref="LuaException">on lua error</exception>
+        public abstract void DoString(byte[] code, string name);
         // opt
         /// <summary>
         /// in idx is a number returns it. if idx is none or nil, returns def.
