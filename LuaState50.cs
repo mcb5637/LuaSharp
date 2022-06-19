@@ -456,10 +456,10 @@ namespace LuaSharp
         {
             return Lua_newuserdata(State, size);
         }
-        private static readonly string FuncUDMeta = "LuaSharpFuncUDMeta";
+        private const string FuncUDMeta = "LuaSharp_FuncUDMeta";
         private static readonly LuaCFunc FuncUDGC = (IntPtr p) => {
             LuaState50 s = new LuaState50(p);
-            IntPtr ud = Lua_touserdata(p, s.UPVALUEINDEX(1));
+            IntPtr ud = Lua_touserdata(p, 1);
             IntPtr h = Marshal.ReadIntPtr(ud);
             GCHandle.FromIntPtr(h).Free();
             return 0;
@@ -468,7 +468,7 @@ namespace LuaSharp
         {
             Push(FuncUDMeta);
             GetTableRaw(REGISTRYINDEX);
-            if (IsNil(-1))
+            if (!IsNil(-1))
             {
                 Pop(1);
                 return;
