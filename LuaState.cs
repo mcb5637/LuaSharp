@@ -145,27 +145,64 @@ namespace LuaSharp
             if (p == IntPtr.Zero)
                 return null;
             int len = 0;
+#if UNSAFE
+            unsafe
+            {
+                byte* bp = (byte*)p;
+                while (bp[len] != 0) // strlen
+                    len++;
+            }
+#else
             while (Marshal.ReadByte(p, len) != 0) // strlen
                 len++;
+#endif
             return MarshalToString(p, len);
         }
         public static string MarshalToString(this IntPtr p, int len)
         {
             if (p == IntPtr.Zero)
                 return null;
+#if UNSAFE
+            unsafe
+            {
+                return EncodingUsed.GetString((byte*)p, len);
+            }
+#else
             byte[] buffer = new byte[len];
             Marshal.Copy(p, buffer, 0, len);
             return EncodingUsed.GetString(buffer);
+#endif
+        }
+        public static string MarshalToString(this byte[] b)
+        {
+            if (b == null)
+                return null;
+            return EncodingUsed.GetString(b);
         }
         public static StringPointerHolder MarshalFromString(this string s)
         {
+            if (s == null)
+                return new StringPointerHolder(IntPtr.Zero, 0);
             int len = EncodingUsed.GetByteCount(s);
+#if UNSAFE
+            unsafe
+            {
+                byte* r = (byte*)Marshal.AllocHGlobal(len + 1);
+                fixed (char* c = s)
+                {
+                    EncodingUsed.GetBytes(c, s.Length, r, len);
+                }
+                r[len] = 0;
+                return new StringPointerHolder((IntPtr)r, len);
+            }
+#else
             byte[] buff = new byte[len + 1];
             EncodingUsed.GetBytes(s, 0, s.Length, buff, 0);
             buff[buff.Length - 1] = 0;
             IntPtr r = Marshal.AllocHGlobal(buff.Length);
             Marshal.Copy(buff, 0, r, buff.Length);
             return new StringPointerHolder(r, len);
+#endif
         }
         public class StringPointerHolder : IDisposable
         {
@@ -180,14 +217,18 @@ namespace LuaSharp
 
             ~StringPointerHolder()
             {
+                if (String == IntPtr.Zero)
+                    return;
                 Marshal.FreeHGlobal(String);
             }
 
             public void Dispose()
             {
+                GC.SuppressFinalize(this);
+                if (String == IntPtr.Zero)
+                    return;
                 Marshal.FreeHGlobal(String);
                 String = IntPtr.Zero;
-                GC.SuppressFinalize(this);
             }
         }
     }
@@ -734,7 +775,7 @@ namespace LuaSharp
         public abstract void PCall(int nargs, int nres);
 
         // debug
-        protected static Regex alphaNumeric = new Regex("^[a-zA-Z0-9_]*$");
+        protected static Regex alphaNumeric = new Regex("^[a-zA-Z][a-zA-Z0-9_]*$");
         /// <summary>
         /// turns the value at index to a debug string.
         /// <para>[-0,+0,-]</para>
@@ -790,32 +831,40 @@ namespace LuaSharp
                         {
                             return $"<table, recursion 0x{(uint)ToPointer(i):X}>";
                         }
-                        Dictionary<string, string> tcontents = new Dictionary<string, string>();
-                        string r = "{";
+                        List<string> tcontents = new List<string>();
                         tablesDone.Add(table, true);
+                        string indentS = new string('\t', indent + 1);
                         foreach (LuaType _ in Pairs(i))
                         {
                             string val = ToDebugString(-1, tableExpand - 1, formatString, formatFunc, indent + 1, tablesDone);
-                            string key = ToDebugString(-2, 0, formatString, formatFunc, 0, tablesDone);
-                            tcontents.Add(key, val);
-                        }
-                        string indentS = new string('\t', indent + 1);
-                        foreach (string key in tcontents.Keys.OrderBy((x) => x))
-                        {
-                            string val = tcontents[key];
-                            if (key[0] == '\"')
+                            string s = null;
+                            if (Type(-2) == LuaType.String)
                             {
-                                string rawString = key.Substring(1, key.Length - 2);
-                                if (alphaNumeric.IsMatch(rawString))
-                                    r += "\n" + indentS + rawString + " = " + val + ",";
-                                else
-                                    r += "\n" + indentS + "[" + key + "] = " + val + ",";
+                                string k = ToString(-2);
+                                if (alphaNumeric.IsMatch(k))
+                                {
+                                    s = $"{k} = {val}";
+                                }
                             }
-                            else
-                                r += "\n" + indentS + "[" + key + "] = " + val + ",";
+                            if (s == null)
+                            {
+                                s = $"[{ToDebugString(-2, 0, formatString, formatFunc, 0, tablesDone)}] = {val}";
+                            }
+                            tcontents.Add(s);
                         }
-                        r += "\n" + new string('\t', indent) + "}";
-                        return r;
+                        StringBuilder sb = new StringBuilder();
+                        sb.Append('{');
+                        foreach (string s in tcontents.OrderBy((X) => X))
+                        {
+                            sb.Append('\n');
+                            sb.Append('\t', indent + 1);
+                            sb.Append(s);
+                            sb.Append(',');
+                        }
+                        sb.Append('\n');
+                        sb.Append('\t', indent);
+                        sb.Append('}');
+                        return sb.ToString();
                     }
                     else
                     {
@@ -1182,7 +1231,7 @@ namespace LuaSharp
         public abstract Reference REFNIL { get; }
 
         // objects as userdata
-        private static readonly string TypeNameName = "IsCSharpObject";
+        private const string TypeNameName = "IsCSharpObject";
         /// <summary>
         /// creates the metatable for a userdata of type T.
         /// registers all methods marked with LuaUserdataFunction as lua functions to __index (the object is automatically recovered from the 1st parameter).
