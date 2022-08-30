@@ -12,7 +12,12 @@ namespace LuaSharp
     {
 #if UNSAFE
         [StructLayout(LayoutKind.Sequential)]
-        private unsafe struct LuaDebugRecord
+#if UNSAFEHOOK
+        public
+#else
+        private
+#endif
+        unsafe struct LuaDebugRecord
         {
             public LuaHook debugEvent;
             public byte* name; /* (n) */
@@ -484,15 +489,14 @@ namespace LuaSharp
             CheckStack(2);
             LuaCFunc p = (IntPtr pt) =>
             {
-                LuaState51 s = new LuaState51(pt)
-                {
-                    CurrentUpvalues = n
-                };
+                LuaState51 s = pt == State ? this : new LuaState51(pt);
+                int ups = s.CurrentUpvalues;
+                s.CurrentUpvalues = n;
                 try
                 {
                     int i = f(s);
                     if (i > Top)
-                        throw new LuaException("c func has noth enough values on the stack for return");
+                        throw new LuaException("c func has not enough values on the stack for return");
                     return i;
                 }
                 catch (Exception e)
@@ -501,6 +505,10 @@ namespace LuaSharp
                     s.ToString(-1);
                     Lua_error(pt);
                     return 0;
+                }
+                finally
+                {
+                    s.CurrentUpvalues = ups;
                 }
             };
             IntPtr h = GCHandle.ToIntPtr(GCHandle.Alloc(p));
@@ -755,42 +763,71 @@ namespace LuaSharp
 #if UNSAFE
         private static unsafe DebugInfo ToDebugInfo(LuaDebugRecord* r, IntPtr ar, bool free = true)
         {
-            return new DebugInfo
-            {
-                Event = r->debugEvent,
-                Name = ((IntPtr)r->name).MarshalToString(),
-                NameWhat = ((IntPtr)r->namewhat).MarshalToString() ?? "",
-                What = ((IntPtr)r->what).MarshalToString() ?? "",
-                Source = ((IntPtr)r->source).MarshalToString() ?? "",
-                CurrentLine = r->currentline,
-                NumUpvalues = r->nups,
-                LineDefined = r->linedefined,
-                ShortSource = ((IntPtr)r->short_src).MarshalToString(),
-                LastLineDefined = r->lastlinedefined,
-                ActivationRecord = ar,
-                FreeAROnFinalize = free,
-            };
+            DebugInfo i = new DebugInfo();
+            ToDebugInfo(i, r, ar, free);
+            return i;
+        }
+        private static unsafe void ToDebugInfo(DebugInfo i, LuaDebugRecord* r, IntPtr ar, bool free = true)
+        {
+            if (i.FreeAROnFinalize && i.ActivationRecord != IntPtr.Zero)
+                Marshal.FreeHGlobal(i.ActivationRecord);
+            i.Event = r->debugEvent;
+            i.Name = ((IntPtr)r->name).MarshalToString();
+            i.NameWhat = ((IntPtr)r->namewhat).MarshalToString() ?? "";
+            i.What = ((IntPtr)r->what).MarshalToString() ?? "";
+            i.Source = ((IntPtr)r->source).MarshalToString() ?? "";
+            i.CurrentLine = r->currentline;
+            i.NumUpvalues = r->nups;
+            i.LineDefined = r->linedefined;
+            i.ShortSource = ((IntPtr)r->short_src).MarshalToString();
+            i.LastLineDefined = r->lastlinedefined;
+            i.ActivationRecord = ar;
+            i.FreeAROnFinalize = free;
         }
 #else
         private static DebugInfo ToDebugInfo(LuaDebugRecord r, IntPtr ar, bool free = true)
         {
-            return new DebugInfo
-            {
-                Event = r.debugEvent,
-                Name = r.name.MarshalToString(),
-                NameWhat = r.namewhat.MarshalToString() ?? "",
-                What = r.what.MarshalToString() ?? "",
-                Source = r.source.MarshalToString() ?? "",
-                CurrentLine = r.currentline,
-                NumUpvalues = r.nups,
-                LineDefined = r.linedefined,
-                ShortSource = r.short_src.MarshalToString(),
-                LastLineDefined = r.lastlinedefined,
-                ActivationRecord = ar,
-                FreeAROnFinalize = free,
-            };
+            DebugInfo i = new DebugInfo();
+            ToDebugInfo(i, r, ar, free);
+            return i;
+        }
+        private static void ToDebugInfo(DebugInfo i, LuaDebugRecord r, IntPtr ar, bool free = true)
+        {
+            if (i.FreeAROnFinalize && i.ActivationRecord != IntPtr.Zero)
+                Marshal.FreeHGlobal(i.ActivationRecord);
+            i.Event = r.debugEvent;
+            i.Name = r.name.MarshalToString();
+            i.NameWhat = r.namewhat.MarshalToString() ?? "";
+            i.What = r.what.MarshalToString() ?? "";
+            i.Source = r.source.MarshalToString() ?? "";
+            i.CurrentLine = r.currentline;
+            i.NumUpvalues = r.nups;
+            i.LineDefined = r.linedefined;
+            i.ShortSource = r.short_src.MarshalToString();
+            i.LastLineDefined = r.lastlinedefined;
+            i.ActivationRecord = ar;
+            i.FreeAROnFinalize = free;
         }
 #endif
+        private static void ClearDebugInfo(DebugInfo i, LuaHook e)
+        {
+            if (i.FreeAROnFinalize && i.ActivationRecord != IntPtr.Zero)
+                Marshal.FreeHGlobal(i.ActivationRecord);
+            i.Event = e;
+            i.Name = null;
+            i.NameWhat = "";
+            i.What = "";
+            i.Source = "";
+            i.CurrentLine = 0;
+            i.NumUpvalues = 0;
+            i.LineDefined = 0;
+            i.ShortSource = null;
+            i.LastLineDefined = 0;
+            i.ActivationRecord = IntPtr.Zero;
+            i.FreeAROnFinalize = false;
+        }
+
+
         public override DebugInfo GetStackInfo(int lvl, bool push = false)
         {
             IntPtr ar = Marshal.AllocHGlobal(Marshal.SizeOf<LuaDebugRecord>());
@@ -799,6 +836,24 @@ namespace LuaSharp
                 Marshal.FreeHGlobal(ar);
                 return null;
             }
+#if UNSAFE
+            unsafe
+            {
+                byte* s = stackalloc byte[6];
+                s[0] = 0x75; // u
+                s[1] = 0x6C; // l
+                s[2] = 0x53; // S
+                s[3] = 0x6E; // n
+                s[4] = push ? (byte)0x66 : (byte)0x0; // f
+                s[5] = 0x0;
+                if (Lua_getinfo(State, (IntPtr)s, ar) == 0)
+                {
+                    Marshal.FreeHGlobal(ar);
+                    throw new LuaException("somehow the option string got messed up");
+                }
+                return ToDebugInfo((LuaDebugRecord*)ar, ar);
+            }
+#else
             using (StringMarshaler.StringPointerHolder h = (push ? "fulSn" : "ulSn").MarshalFromString())
             {
                 if (Lua_getinfo(State, h.String, ar) == 0)
@@ -806,16 +861,10 @@ namespace LuaSharp
                     Marshal.FreeHGlobal(ar);
                     throw new LuaException("somehow the option string got messed up");
                 }
-#if UNSAFE
-                unsafe
-                {
-                    return ToDebugInfo((LuaDebugRecord*)ar, ar);
-                }
-#else
                 LuaDebugRecord r = Marshal.PtrToStructure<LuaDebugRecord>(ar);
                 return ToDebugInfo(r, ar);
-#endif
             }
+#endif
         }
         public override DebugInfo GetFuncInfo()
         {
@@ -824,15 +873,19 @@ namespace LuaSharp
             unsafe
             {
                 LuaDebugRecord* ar = stackalloc LuaDebugRecord[1];
-                using (StringMarshaler.StringPointerHolder h = ">ulSn".MarshalFromString())
+                byte* s = stackalloc byte[6];
+                s[0] = 0x3E; // >
+                s[1] = 0x75; // u
+                s[2] = 0x6C; // l
+                s[3] = 0x53; // S
+                s[4] = 0x6E; // n
+                s[5] = 0x0;
+                if (Lua_getinfo(State, (IntPtr)s, (IntPtr)ar) == 0)
                 {
-                    if (Lua_getinfo(State, h.String, (IntPtr)ar) == 0)
-                    {
-                        throw new LuaException("somehow the option string got messed up");
-                    }
-                    DebugInfo i = ToDebugInfo(ar, IntPtr.Zero); // no ar here, cause we cannot change locals of this anyway
-                    return i;
+                    throw new LuaException("somehow the option string got messed up");
                 }
+                DebugInfo i = ToDebugInfo(ar, IntPtr.Zero); // no ar here, cause we cannot change locals of this anyway
+                return i;
             }
 #else
             IntPtr ar = Marshal.AllocHGlobal(Marshal.SizeOf<LuaDebugRecord>());
@@ -853,6 +906,21 @@ namespace LuaSharp
         {
             if (i.ActivationRecord == IntPtr.Zero)
                 throw new LuaException("i has no ActivationRecord");
+#if UNSAFE
+            unsafe
+            {
+                byte* s = stackalloc byte[2];
+                s[0] = 0x66; // f
+                s[1] = 0x0;
+                if (Lua_getinfo(State, (IntPtr)s, i.ActivationRecord) == 0)
+                {
+                    Marshal.FreeHGlobal(i.ActivationRecord);
+                    i.ActivationRecord = IntPtr.Zero;
+                    throw new LuaException("ActiationRecord seems to be invalid");
+                }
+            }
+
+#else
             using (StringMarshaler.StringPointerHolder h = "f".MarshalFromString())
             {
                 if (Lua_getinfo(State, h.String, i.ActivationRecord) == 0)
@@ -862,6 +930,7 @@ namespace LuaSharp
                     throw new LuaException("ActiationRecord seems to be invalid");
                 }
             }
+#endif
         }
 
         public override int GetCurrentFuncStackSize()
@@ -974,28 +1043,25 @@ namespace LuaSharp
                 HookFunc = null;
                 return;
             }
+            DebugInfo i = new DebugInfo();
             HookFunc = (IntPtr s, IntPtr debugrecord) =>
             {
                 try
                 {
-                    LuaState st = new LuaState51(s);
+                    LuaState51 st = s == State ? this : new LuaState51(s);
                     using (StringMarshaler.StringPointerHolder h = "ulSn".MarshalFromString())
                     {
 #if UNSAFE
                         unsafe
                         {
                             int info = Lua_getinfo(s, h.String, debugrecord);
-                            DebugInfo i;
                             if (info == 0)
                             {
-                                i = new DebugInfo()
-                                {
-                                    Event = ((LuaDebugRecord*)debugrecord)->debugEvent,
-                                };
+                                ClearDebugInfo(i, ((LuaDebugRecord*)debugrecord)->debugEvent);
                             }
                             else
                             {
-                                i = ToDebugInfo((LuaDebugRecord*)debugrecord, debugrecord, false);
+                                ToDebugInfo(i, (LuaDebugRecord*)debugrecord, debugrecord, false);
                             }
                             func(st, i);
                             i.ActivationRecord = IntPtr.Zero;
@@ -1003,17 +1069,13 @@ namespace LuaSharp
 #else
                         int info = Lua_getinfo(s, h.String, debugrecord);
                         LuaDebugRecord r = Marshal.PtrToStructure<LuaDebugRecord>(debugrecord);
-                        DebugInfo i;
                         if (info == 0)
                         {
-                            i = new DebugInfo()
-                            {
-                                Event = r.debugEvent,
-                            };
+                            ClearDebugInfo(i, r.debugEvent);
                         }
                         else
                         {
-                            i = ToDebugInfo(r, debugrecord, false);
+                            ToDebugInfo(i, r, debugrecord, false);
                         }
                         func(st, i);
                         i.ActivationRecord = IntPtr.Zero;
@@ -1030,7 +1092,55 @@ namespace LuaSharp
                 throw new LuaException("will never happen, always returns 1");
         }
 
-
+#if UNSAFEHOOK
+        public unsafe delegate void UnsafeHookDelegate(LuaState51 L, LuaDebugRecord* r);
+        public unsafe void SetHook(UnsafeHookDelegate func, LuaHookMask mask, int count)
+        {
+            if (func == null || mask == LuaHookMask.None)
+            {
+                if (Lua_sethook(State, IntPtr.Zero, LuaHookMask.None, 0) != 1)
+                    throw new LuaException("will never happen, always returns 1");
+                HookFunc = null;
+                return;
+            }
+            HookFunc = (IntPtr s, IntPtr debugrecord) =>
+            {
+                try
+                {
+                    LuaState51 st = s == State ? this : new LuaState51(s);
+                    func(st, (LuaDebugRecord*)debugrecord);
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine("exception catched in lua hook:");
+                    Console.WriteLine(e.ToString());
+                }
+            };
+            if (Lua_sethook(State, Marshal.GetFunctionPointerForDelegate(HookFunc), mask, count) != 1)
+                throw new LuaException("will never happen, always returns 1");
+        }
+        public unsafe bool HookFillInfo(LuaDebugRecord* r)
+        {
+            byte* s = stackalloc byte[5];
+            s[0] = 0x75; // u
+            s[1] = 0x6C; // l
+            s[2] = 0x53; // S
+            s[3] = 0x6E; // n
+            s[4] = 0x0;
+            int info = Lua_getinfo(State, (IntPtr)s, (IntPtr)r);
+            return info != 0;
+        }
+        public unsafe int HookGetLineNumber(LuaDebugRecord* r)
+        {
+            byte* s = stackalloc byte[2];
+            s[0] = 0x6C; // l
+            s[1] = 0x0;
+            int info = Lua_getinfo(State, (IntPtr)s, (IntPtr)r);
+            if (info == 0)
+                return -1;
+            return r->currentline;
+        }
+#endif
 
         [DllImport(Globals.Lua51Dll, EntryPoint = "lua_dump", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Lua_dump(IntPtr l, IntPtr wr, int data);
